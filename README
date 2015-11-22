@@ -1,0 +1,14 @@
+Author -- Patrick S. Avery -- 2015
+
+This program, written in C, uses the libssh library to create a basic scp program
+
+To compile, enter the directory and type:
+
+> mkdir build
+> cmake ..
+
+The 'scp' executable is then created in build
+
+Usage: "scp <from> <to>"
+
+Format of <from> or <to> consists of [[user@]host:]/path/to/file
