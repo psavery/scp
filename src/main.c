@@ -56,7 +56,10 @@ int main(int argc, char* argv[])
     return -1;
   }
 
-  if (scp_copyFromServer(session, pfromInfo->filePath, to) != SSH_OK) {
+  // Let's just turn recursive mode on...
+  bool isRecursive = true;
+  if (scp_copyFromServer(session, pfromInfo->filePath, to, isRecursive)
+      != SSH_OK) {
     fprintf(stderr, "Error executing scp_copyFromServer()\n");
     connectSSH_disconnectSession(&session);
     return -1;

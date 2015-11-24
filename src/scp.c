@@ -13,43 +13,15 @@
 // Define this macro to produce more debug output
 // #define SCP_DEBUG
 
-// Make sure there is enough space in newDestination before putting it into this function
-// Easy way is to just make newDestination of size PATH_MAX...
-void scp_createModifiedDestination(const char* from, const char* destination, char* newDestination)
-{
-  snprintf(newDestination, PATH_MAX, "%s", destination);
-
-  int rc = fileSystemUtils_getFileType(destination);
-  if (rc == FILE_IS_REG) return;
-  else if (rc == FILE_IS_DIR) {
-#ifdef _WIN32
-    if (destination[strlen(destination) - 1] != '\\' || // User did not add the final slash
-        strlen(destination) == 1 && destination[0] == '.' || // Dot
-        strlen(destination) == 2 && destination[0] == '.' && destination[1] == '.') // Dot dot
-       strcat(newDestination, "\\");
-    char* last = strrchr(from, '\\');
-#else
-    if (destination[strlen(destination) - 1] != '/' || // User did not add the final slash
-        strlen(destination) == 1 && destination[0] == '.' || // Dot
-        strlen(destination) == 2 && destination[0] == '.' && destination[1] == '.') // Dot dot
-      strcat(newDestination, "/");
-    char* last = strrchr(from, '/');
-#endif
-
-    if (!last) strcat(newDestination, from);
-    else strcat(newDestination, last);
-    return;
-  }
-}
-
-int scp_copyFromServer(ssh_session session, char* fileName, char* destination)
+int scp_copyFromServer(ssh_session session, char* from,
+                       char* destination, bool isRecursive)
 {
   // First, just make the initial preparations for scp...
   ssh_scp scp;
   int rc;
 
   // SSH_SCP_RECURSIVE allows us to detect if it's a directory
-  scp = ssh_scp_new(session, SSH_SCP_READ | SSH_SCP_RECURSIVE, fileName);
+  scp = ssh_scp_new(session, SSH_SCP_READ | SSH_SCP_RECURSIVE, from);
 
   if (scp == NULL)
   {
@@ -68,7 +40,19 @@ int scp_copyFromServer(ssh_session session, char* fileName, char* destination)
 
   rc = ssh_scp_pull_request(scp);
 
-  if (!_scp_handlePullRequest(session, scp, fileName, destination, rc, true))
+  // Set up the scp info
+  scpInfo scpinfo;
+  scpinfo.session = session;
+  scpinfo.scp = scp;
+  snprintf(scpinfo.from, PATH_MAX, "%s", from);
+  scpinfo.isRecursive = isRecursive;
+
+  // A single file was requested...
+  if (rc == SSH_SCP_REQUEST_NEWFILE) scpinfo.isRecursive = false;
+
+  pscpInfo scp_info = &scpinfo;
+
+  if (!_scp_handlePullRequest(scp_info, destination, rc))
     return SSH_ERROR;
 
   ssh_scp_close(scp);
@@ -77,31 +61,38 @@ int scp_copyFromServer(ssh_session session, char* fileName, char* destination)
 }
 
 // rc is the return from the pull request
-bool _scp_handlePullRequest(ssh_session session, ssh_scp scp,
-                            const char* fromName, const char* toName,
-                            int rc, bool singleFileRequest)
+bool _scp_handlePullRequest(pscpInfo scp_info, const char* destination,
+                            int pullRequestRet)
 {
   bool success = false;
 
-  switch (rc) {
+  switch (pullRequestRet) {
     // Requested a directory!
     case SSH_SCP_REQUEST_NEWDIR:
 #ifdef SCP_DEBUG
       printf("in _scp_handlePullRequest(), rc is SSH_SCP_REQUEST_NEWDIR\n");
 #endif
-      if (ssh_scp_accept_request(scp) != SSH_OK)
-        fprintf(stderr, "Error accepting scp request: %s\n", ssh_get_error(session));
+      // If recursive mode is turned off, just return false...
+      if (!scp_info->isRecursive) {
+        fprintf(stderr, "%s is a directory!\n", scp_info->from);
+        return false;
+      }
+
+      if (ssh_scp_accept_request(scp_info->scp) != SSH_OK)
+        fprintf(stderr, "Error accepting scp request: %s\n",
+                ssh_get_error(scp_info->session));
       else {
-        char newToName[PATH_MAX];
-        snprintf(newToName, PATH_MAX, "%s/%s", toName, ssh_scp_request_get_filename(scp));
+        char newDest[PATH_MAX];
+        snprintf(newDest, PATH_MAX, "%s/%s",
+                 destination, ssh_scp_request_get_filename(scp_info->scp));
 
         // Make the local directory if needed
-        if (!fileSystemUtils_mkdirIfNeeded(newToName)) {
+        if (!fileSystemUtils_mkdirIfNeeded(newDest)) {
           fprintf(stderr, "fileSystemUtils_mkdirIfNeeded() failed.\n");
           break;
         }
 
-        success = _scp_copyDirFromServer(session, scp, fromName, newToName);
+        success = _scp_copyDirFromServer(scp_info, newDest);
       }
       break;
     // Requested a file!
@@ -109,38 +100,40 @@ bool _scp_handlePullRequest(ssh_session session, ssh_scp scp,
 #ifdef SCP_DEBUG
       printf("in _scp_handlePullRequest(), rc is SSH_SCP_REQUEST_NEWFILE\n");
 #endif
-      if (ssh_scp_accept_request(scp) != SSH_OK) {
+      if (ssh_scp_accept_request(scp_info->scp) != SSH_OK) {
         fprintf(stderr, "Error accepting scp request: ");
-        fprintf(stderr, "%s\n", ssh_get_error(session));
+        fprintf(stderr, "%s\n", ssh_get_error(scp_info->session));
       }
       else {
-        char newToName[PATH_MAX];
-        int type = fileSystemUtils_getFileType(toName);
+        char newDest[PATH_MAX];
+        int type = fileSystemUtils_getFileType(destination);
 
-        // If the toName is a dir, set the newToName to be dir/fileName
+        // If the destination is a dir, set the newDest to be dir/fileName
         if (type == FILE_IS_DIR)
-          snprintf(newToName, PATH_MAX, "%s/%s", toName, ssh_scp_request_get_filename(scp));
+          snprintf(newDest, PATH_MAX, "%s/%s",
+                   destination, ssh_scp_request_get_filename(scp_info->scp));
 
-        // If the toName is anything else, just set newToName to be the same
+        // If the destination is anything else, just set newDest to be the same
         else if (type == FILE_IS_REG || type == DOES_NOT_EXIST)
-          snprintf(newToName, PATH_MAX, "%s", toName);
+          snprintf(newDest, PATH_MAX, "%s", destination);
         else {
-          fprintf(stderr, "Error determining type of file for: %s\n", toName);
+          fprintf(stderr, "Error determining type of file for: %s\n",
+                  destination);
           return false;
         }
 
-        success = _scp_copyFileFromServer(session, scp, fromName, newToName, singleFileRequest);
+        success = _scp_copyFileFromServer(scp_info, newDest);
       }
       break;
     // A warning was returned
     case SSH_SCP_REQUEST_WARNING:
       fprintf(stderr, "%s", "ssh_scp_pull_request() returned with a warning: ");
-      fprintf(stderr, "%s\n", ssh_get_error(session));
+      fprintf(stderr, "%s\n", ssh_get_error(scp_info->session));
       break;
     // An error was returned
     case SSH_ERROR:
       fprintf(stderr, "%s", "ssh_scp_pull_request() returned with an error: ");
-      fprintf(stderr, "%s\n", ssh_get_error(session));
+      fprintf(stderr, "%s\n", ssh_get_error(scp_info->session));
       break;
     // An unexpected value was returned
     default:
@@ -155,17 +148,15 @@ bool _scp_handlePullRequest(ssh_session session, ssh_scp scp,
   return true;
 }
 
-bool _scp_copyFileFromServer(ssh_session session, ssh_scp scp,
-                             const char* fileName, const char* destination,
-                             bool singleFileRequest)
+bool _scp_copyFileFromServer(pscpInfo scp_info, const char* destination)
 {
 #ifdef SCP_DEBUG
   printf("in _scp_copyFileFromServer(): \n");
-  printf("fileName is %s\n", fileName);
+  printf("scp_info->from is %s\n", scp_info->from);
   printf("destination is %s\n", destination);
 #endif
   int rc = SSH_ERROR;
-  size_t fileSize = ssh_scp_request_get_size(scp);
+  size_t fileSize = ssh_scp_request_get_size(scp_info->scp);
   size_t bytesRead = 0;
   char buffer[LIBSSH_BUFFER_SIZE];
 
@@ -179,15 +170,16 @@ bool _scp_copyFileFromServer(ssh_session session, ssh_scp scp,
   // If the fileSize is zero, just return true. No copying needed
   if (fileSize == 0) {
     // This is needed to refresh the state of the scp
-    rc = ssh_scp_read(scp, buffer, sizeof(buffer));
+    rc = ssh_scp_read(scp_info->scp, buffer, sizeof(buffer));
     fclose(fp);
     return true;
   }
 
   do {
-    rc = ssh_scp_read(scp, buffer, sizeof(buffer));
+    rc = ssh_scp_read(scp_info->scp, buffer, sizeof(buffer));
     if (rc == SSH_ERROR) {
-      fprintf(stderr, "Error reading file: %s\n", ssh_get_error(session));
+      fprintf(stderr, "Error reading file: %s\n",
+              ssh_get_error(scp_info->session));
       return -1;
     }
 
@@ -209,12 +201,12 @@ bool _scp_copyFileFromServer(ssh_session session, ssh_scp scp,
 
   // If a single file is being requested, the pull request will return
   // SSH_SCP_REQUEST_EOF at the end
-  if (singleFileRequest) {
-    rc = ssh_scp_pull_request(scp);
+  if (!scp_info->isRecursive) {
+    rc = ssh_scp_pull_request(scp_info->scp);
 
     if (rc != SSH_SCP_REQUEST_EOF) {
       fprintf(stderr, "Unexpected request: %s\n",
-              ssh_get_error(session));
+              ssh_get_error(scp_info->session));
       return false;
     }
   }
@@ -225,20 +217,20 @@ bool _scp_copyFileFromServer(ssh_session session, ssh_scp scp,
 // This is recursive if more directories exist
 // the SSH_SCP_REQUEST_NEWDIR return from ssh_scp_pull_request()
 // should have already been received and accepted before calling this function
-bool _scp_copyDirFromServer(ssh_session session, ssh_scp scp,
-                            const char* fromName, const char* toName)
+bool _scp_copyDirFromServer(pscpInfo scp_info, const char* destination)
 {
 #ifdef SCP_DEBUG
   printf("in _scp_copyDirFromServer(): \n");
-  printf("fromName is %s\n", fromName);
-  printf("toName is %s\n", toName);
+  printf("scp_info->from is %s\n", scp_info->from);
+  printf("destination is %s\n", destination);
 #endif
-  int rc = ssh_scp_pull_request(scp);
+  int rc = ssh_scp_pull_request(scp_info->scp);
 
+  // Keep looping through the contents of the directory until we reach
+  // the end of the directory
   while (rc != SSH_SCP_REQUEST_ENDDIR) {
-    if (!_scp_handlePullRequest(session, scp, fromName, toName, rc, false))
-      return false;
-    rc = ssh_scp_pull_request(scp);
+    if (!_scp_handlePullRequest(scp_info, destination, rc)) return false;
+    rc = ssh_scp_pull_request(scp_info->scp);
   }
 
   return true;
