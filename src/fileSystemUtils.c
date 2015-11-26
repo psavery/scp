@@ -37,7 +37,6 @@ int fileSystemUtils_getFilePermissions(const char* path)
   stat(path, &st);
 
   int statchmod = st.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO);
-  printf("chmod: %o\n", statchmod);
   return statchmod;
 }
 
