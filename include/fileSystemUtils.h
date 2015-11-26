@@ -23,6 +23,11 @@ size_t fileSystemUtils_getFileSize(const char* path);
 
 bool fileSystemUtils_mkdirIfNeeded(const char* path);
 
+bool fileSystemUtils_chdir(const char* path);
+
+// Make sure string is of size PATH_MAX before passing it here
+bool fileSystemUtils_getCWD(char* string);
+
 // Returns a dynamically allocated character array that contains a
 // comma delimited list of the files in a directory
 // The returned character array needs to be freed

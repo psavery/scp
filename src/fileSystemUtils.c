@@ -89,6 +89,29 @@ bool fileSystemUtils_mkdirIfNeeded(const char* path)
   return true;
 }
 
+bool fileSystemUtils_getCWD(char* string)
+{
+  getcwd(string, PATH_MAX);
+  if (string == NULL) {
+    fprintf(stderr, "Error: getcwd() failed in %s\n", __FUNCTION__);
+    fprintf(stderr, "errnor is %i\n", errno);
+    return false;
+  }
+  return true;
+}
+
+bool fileSystemUtils_chdir(const char* path)
+{
+  int ret = chdir(path);
+  if (ret != 0) {
+    fprintf(stderr, "Error: cannot change directory to %s in %s\n", path,
+            __FUNCTION__);
+    fprintf(stderr, "errno is %i\n", errno);
+    return false;
+  }
+  return true;
+}
+
 // The _D_ stands for "dynamic". It is there to emphasize
 // that the array that is returned is dynamically allocated and needs to be
 // freed

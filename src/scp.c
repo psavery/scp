@@ -360,13 +360,18 @@ bool _scp_copyDirToServer(pscpInfo scp_info, const char* dirName)
   int type = FILE_IS_REG;
   char* fileList = fileSystemUtils_D_getDelimitedFileList(dirName);
 
+  // Save the cwd and restore it later
+  char oldPath[PATH_MAX];
+  fileSystemUtils_getCWD(oldPath);
+
   // Move the process's working directory to the directory of interest
-  chdir(dirName);
+  fileSystemUtils_chdir(dirName);
 
   // This list is delimited by commas, so tokenize it with commas
   // This function is recursive, so use strtok_r()
   char* saveptr;
   char* tok = strtok_r(fileList, ",", &saveptr);
+  bool success = true;
   while (tok != NULL) {
     // Skip . and ..
     if (strcmp(tok, "..") == 0 || strcmp(tok, ".") == 0) {
@@ -377,10 +382,16 @@ bool _scp_copyDirToServer(pscpInfo scp_info, const char* dirName)
     type = fileSystemUtils_getFileType(tok);
 
     if (type == FILE_IS_DIR) {
-      if (!_scp_copyDirToServer(scp_info, tok)) return false;
+      if (!_scp_copyDirToServer(scp_info, tok)) {
+        success = false;
+        break;
+      }
     }
     else if (type == FILE_IS_REG) {
-      if (!_scp_copyFileToServer(scp_info, tok)) return false;
+      if (!_scp_copyFileToServer(scp_info, tok)) {
+        success = false;
+        break;
+      }
     }
     else fprintf(stderr, "Warning: %s is not a regular file or directory\n",
                  tok);
@@ -391,9 +402,9 @@ bool _scp_copyDirToServer(pscpInfo scp_info, const char* dirName)
   // must be freed
   free(fileList);
 
-  // Back out of the directory
-  chdir("..");
+  // restore old cwd
+  fileSystemUtils_chdir(oldPath);
   ssh_scp_leave_directory(scp_info->scp);
 
-  return true;
+  return success;
 }
