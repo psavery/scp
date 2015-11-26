@@ -323,21 +323,24 @@ bool _scp_copyFileToServer(pscpInfo scp_info, const char* file)
   }
 
   size_t bytesRead = 0;
-  // Will this crash for really large files??
-  char buffer[size];
+  // TODO: it'd be nice to find a way to copy over the file in segments
+  // to allow for a loading bar and to prevent having really large files
+  // being copied into memory
+  char* buffer = malloc(sizeof(char) * size);
 
-  fread(buffer, sizeof(buffer), 1, fp);
+  fread(buffer, size, 1, fp);
 
-  rc = ssh_scp_write(scp_info->scp, buffer, sizeof(buffer));
+  rc = ssh_scp_write(scp_info->scp, buffer, size);
 
   if (rc != SSH_OK) {
     fprintf(stderr, "Can't write to remote file: %s\n",
             ssh_get_error(scp_info->session));
+    free(buffer);
     fclose(fp);
     return false;
   }
   bytesRead += LIBSSH_BUFFER_SIZE;
-
+  free(buffer);
   fclose(fp);
 
   return true;
