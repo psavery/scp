@@ -11,7 +11,7 @@
 #include <fileSystemUtils.h>
 
 // Define this macro to produce more debug output
-// #define SCP_DEBUG
+//#define SCP_DEBUG
 
 int scp_copyFromServer(ssh_session session, char* from,
                        char* destination, bool isRecursive)
@@ -23,15 +23,13 @@ int scp_copyFromServer(ssh_session session, char* from,
   // SSH_SCP_RECURSIVE allows us to detect if it's a directory
   scp = ssh_scp_new(session, SSH_SCP_READ | SSH_SCP_RECURSIVE, from);
 
-  if (scp == NULL)
-  {
+  if (scp == NULL) {
     fprintf(stderr, "Error allocating scp session: %s\n",
             ssh_get_error(session));
     return SSH_ERROR;
   }
   rc = ssh_scp_init(scp);
-  if (rc != SSH_OK)
-  {
+  if (rc != SSH_OK) {
     fprintf(stderr, "Error initializing scp session: %s\n",
             ssh_get_error(session));
     ssh_scp_free(scp);
@@ -50,6 +48,7 @@ int scp_copyFromServer(ssh_session session, char* from,
   // A single file was requested...
   if (rc == SSH_SCP_REQUEST_NEWFILE) scpinfo.isRecursive = false;
 
+  // Create the pointer to be passed around
   pscpInfo scp_info = &scpinfo;
 
   if (!_scp_handlePullRequest(scp_info, destination, rc))
@@ -143,9 +142,7 @@ bool _scp_handlePullRequest(pscpInfo scp_info, const char* destination,
       break;
   }
 
-  if (!success) return false;
-
-  return true;
+  return success;
 }
 
 bool _scp_copyFileFromServer(pscpInfo scp_info, const char* destination)
@@ -236,3 +233,167 @@ bool _scp_copyDirFromServer(pscpInfo scp_info, const char* destination)
   return true;
 }
 
+int scp_copyToServer(ssh_session session, char* from,
+                     char* to, bool isRecursive)
+{
+#ifdef SCP_DEBUG
+  printf("scp_copyToServer() called with from = '%s' and to = '%s'\n",
+         from, to);
+#endif
+  // If to ends in '/', this causes confusion for the server, so just replace it
+  if (from[strlen(from) - 1] == '/') from[strlen(from) - 1] = '\0';
+
+  // If we're not in recursive mode and it's a directory, return with an error
+  if (!isRecursive && fileSystemUtils_getFileType(from) == FILE_IS_DIR) {
+    fprintf(stderr, "%s is a directory!\n", from);
+    return SSH_ERROR;
+  }
+  // If we are in recursive mode and it's a file, just turn it off
+  else if (isRecursive && fileSystemUtils_getFileType(from) == FILE_IS_REG)
+    isRecursive = false;
+
+  // Make the initial preparations for scp...
+  ssh_scp scp;
+  int rc;
+
+  // SSH_SCP_RECURSIVE allows us to detect if it's a directory
+  scp = ssh_scp_new(session, SSH_SCP_WRITE | SSH_SCP_RECURSIVE, to);
+
+  if (scp == NULL) {
+    fprintf(stderr, "Error allocating scp session: %s\n",
+            ssh_get_error(session));
+    return SSH_ERROR;
+  }
+
+  rc = ssh_scp_init(scp);
+  if (rc != SSH_OK) {
+    fprintf(stderr, "Error initializing scp session: %s\n",
+            ssh_get_error(session));
+    ssh_scp_free(scp);
+    return rc;
+  }
+
+  scpInfo scpinfo;
+  scpinfo.session = session;
+  scpinfo.scp = scp;
+
+  snprintf(scpinfo.from, PATH_MAX, "%s", from);
+
+  scpinfo.isRecursive = isRecursive;
+
+  pscpInfo scp_info = &scpinfo;
+
+  if (fileSystemUtils_getFileType(from) == FILE_IS_REG) {
+    if (!_scp_copyFileToServer(scp_info, from)) return SSH_ERROR;
+  }
+  else if (fileSystemUtils_getFileType(from) == FILE_IS_DIR) {
+    if (!_scp_copyDirToServer(scp_info, from)) return SSH_ERROR;
+  }
+
+  ssh_scp_close(scp);
+  ssh_scp_free(scp);
+  return SSH_OK;
+}
+
+// Push files to server
+bool _scp_copyFileToServer(pscpInfo scp_info, const char* file)
+{
+#ifdef SCP_DEBUG
+  printf("scp_copyFileToServer() called with file = '%s'\n", file);
+#endif
+  int rc;
+
+  size_t size = fileSystemUtils_getFileSize(file);
+
+  FILE* fp = fopen(file, "r");
+  if (fp == NULL) {
+    fprintf(stderr, "Error while opening %s for reading\n", file);
+    return false;
+  }
+
+  // Use the same permissions for the server as for local
+  int permissions = fileSystemUtils_getFilePermissions(file);
+
+  rc = ssh_scp_push_file(scp_info->scp, file, size, permissions);
+  if (rc != SSH_OK) {
+    fprintf(stderr, "Can't open remote file: %s\n",
+            ssh_get_error(scp_info->session));
+    fclose(fp);
+    return false;
+  }
+
+  size_t bytesRead = 0;
+  // Will this crash for really large files??
+  char buffer[size];
+
+  fread(buffer, sizeof(buffer), 1, fp);
+
+  rc = ssh_scp_write(scp_info->scp, buffer, sizeof(buffer));
+
+  if (rc != SSH_OK) {
+    fprintf(stderr, "Can't write to remote file: %s\n",
+            ssh_get_error(scp_info->session));
+    fclose(fp);
+    return false;
+  }
+  bytesRead += LIBSSH_BUFFER_SIZE;
+
+  fclose(fp);
+
+  return true;
+}
+
+bool _scp_copyDirToServer(pscpInfo scp_info, const char* dirName)
+{
+#ifdef SCP_DEBUG
+  printf("_scp_copyDirToServer() was called for %s\n", dirName);
+#endif
+  // Use the same permissions for the remote file as for the local file
+  int permissions = fileSystemUtils_getFilePermissions(dirName);
+
+  int rc = ssh_scp_push_directory(scp_info->scp, dirName, permissions);
+  if (rc != SSH_OK) {
+    fprintf(stderr, "Can't create remote directory: %s\n",
+            ssh_get_error(scp_info->session));
+    return false;
+  }
+  int type = FILE_IS_REG;
+  char* fileList = fileSystemUtils_D_getDelimitedFileList(dirName);
+
+  // Move the process's working directory to the directory of interest
+  chdir(dirName);
+
+  // This list is delimited by commas, so tokenize it with commas
+  // This function is recursive, so use strtok_r()
+  char* saveptr;
+  char* tok = strtok_r(fileList, ",", &saveptr);
+  while (tok != NULL) {
+    // Skip . and ..
+    if (strcmp(tok, "..") == 0 || strcmp(tok, ".") == 0) {
+      tok = strtok_r(NULL, ",", &saveptr);
+      continue;
+    }
+    // Get the file type
+    type = fileSystemUtils_getFileType(tok);
+
+    if (type == FILE_IS_DIR) {
+      if (!_scp_copyDirToServer(scp_info, tok)) return false;
+    }
+    else if (type == FILE_IS_REG) {
+      if (!_scp_copyFileToServer(scp_info, tok)) return false;
+    }
+    else fprintf(stderr, "Warning: %s is not a regular file or directory\n",
+                 tok);
+
+    tok = strtok_r(NULL, ",", &saveptr);
+  }
+  // fileSystemUtils_D_getDelimitedFileList() returns a character array that
+  // must be freed
+  free(fileList);
+
+  // Back out of the directory
+  chdir("..");
+  ssh_scp_leave_directory(scp_info->scp);
+
+  return true;
+}

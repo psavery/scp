@@ -50,22 +50,52 @@ int main(int argc, char* argv[])
     return ret;
   }
 
-  ssh_session session = connectSSH_getConnectedSession(pfromInfo);
-  if (!session) {
-    fprintf(stderr, "Error connecting the session: %s\n", ssh_get_error(session));
-    return -1;
-  }
+  // We are copying from the server...
+  else if (!fromInfo.isLocal && toInfo.isLocal) {
+    ssh_session session = connectSSH_getConnectedSession(pfromInfo);
+    if (!session) {
+      fprintf(stderr, "Error connecting the session: %s\n",
+              ssh_get_error(session));
+      return -1;
+    }
 
-  // Let's just turn recursive mode on...
-  bool isRecursive = true;
-  if (scp_copyFromServer(session, pfromInfo->filePath, to, isRecursive)
-      != SSH_OK) {
-    fprintf(stderr, "Error executing scp_copyFromServer()\n");
+    // Let's just turn recursive mode on...
+    bool isRecursive = true;
+    if (scp_copyFromServer(session, pfromInfo->filePath, to, isRecursive)
+        != SSH_OK) {
+      fprintf(stderr, "Error executing scp_copyFromServer()\n");
+      connectSSH_disconnectSession(&session);
+      return -1;
+    }
     connectSSH_disconnectSession(&session);
+  }
+
+  // We are copying to the server...
+  else if (fromInfo.isLocal && !toInfo.isLocal) {
+    ssh_session session = connectSSH_getConnectedSession(ptoInfo);
+    if (!session) {
+      fprintf(stderr, "Error connecting the session: %s\n",
+              ssh_get_error(session));
+      return -1;
+    }
+
+    // Let's just turn recursive mode on...
+    bool isRecursive = true;
+    if (scp_copyToServer(session, pfromInfo->filePath, ptoInfo->filePath,
+                        isRecursive) != SSH_OK) {
+      fprintf(stderr, "Error executing scp_copyFromServer()\n");
+      connectSSH_disconnectSession(&session);
+      return -1;
+    }
+    connectSSH_disconnectSession(&session);
+  }
+
+  else {
+    fprintf(stderr, "%s%s\n", "Copying from one remote location to another ",
+            "remote location has not yet been set up");
     return -1;
   }
 
-  connectSSH_disconnectSession(&session);
   fprintf(stdout, "scp complete!\n");
   return 0;
 }
