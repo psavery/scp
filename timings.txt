@@ -4,7 +4,7 @@ All timings were performed using public key authentication so that the password 
 
 The timings were performed using a C++ wrapper that recorded the amount of time it took from the start to the end of the program. They were performed on an ubuntu 14.04 virtual machine - which may cause the network speeds to be a little slower. However, relative timings should still be valid.
 
-The timings are in seconds.
+The timings are in seconds. "scp" is for the built-in scp, and "myscp" is for the scp exeutable that is compiled by this source code.
 
 ### SCP FROM REMOTE COMPUTER TO LOCAL ###
 
