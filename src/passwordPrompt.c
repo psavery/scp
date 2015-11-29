@@ -1,6 +1,19 @@
-// Written by Patrick S. Avery -- 2015
-// Hides the console input while the user inputs the password
-// Returns the password
+/**********************************************************************
+  passwordPrompt.c - Source code for the password prompt functions.
+                     Hides the console input while the user inputs the password
+                     Returns a pointer to a 32-byte length static char array
+                     That contains the password.
+
+  Copyright (C) 2015 by Patrick S. Avery
+
+  This source code is released under the New BSD License, (the "License").
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+ ***********************************************************************/
 
 // Include Windows header for Windows
 #ifdef _WIN32

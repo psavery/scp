@@ -1,4 +1,16 @@
-// Author -- Patrick S. Avery -- 2015
+/**********************************************************************
+  scp.c - Source code for the scp functions
+
+  Copyright (C) 2015 by Patrick S. Avery
+
+  This source code is released under the New BSD License, (the "License").
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+ ***********************************************************************/
 
 #include <linux/limits.h>
 #include <stdbool.h>
@@ -9,6 +21,8 @@
 #include <scp.h>
 #include <loadBar.h>
 #include <fileSystemUtils.h>
+
+#define LIBSSH_BUFFER_SIZE 16384
 
 // Define this macro to produce more debug output
 //#define SCP_DEBUG
@@ -51,8 +65,11 @@ int scp_copyFromServer(ssh_session session, char* from,
   // Create the pointer to be passed around
   pscpInfo scp_info = &scpinfo;
 
-  if (!_scp_handlePullRequest(scp_info, destination, rc))
+  if (!_scp_handlePullRequest(scp_info, destination, rc)) {
+    fprintf(stderr, "Error in %s: _scp_hanldePullRequest() failed!\n",
+            __FUNCTION__);
     return SSH_ERROR;
+  }
 
   ssh_scp_close(scp);
   ssh_scp_free(scp);
@@ -195,18 +212,6 @@ bool _scp_copyFileFromServer(pscpInfo scp_info, const char* destination)
   while (bytesRead < fileSize);
 
   fclose(fp);
-
-  // If a single file is being requested, the pull request will return
-  // SSH_SCP_REQUEST_EOF at the end
-  if (!scp_info->isRecursive) {
-    rc = ssh_scp_pull_request(scp_info->scp);
-
-    if (rc != SSH_SCP_REQUEST_EOF) {
-      fprintf(stderr, "Unexpected request: %s\n",
-              ssh_get_error(scp_info->session));
-      return false;
-    }
-  }
 
   return true;
 }

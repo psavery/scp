@@ -1,0 +1,76 @@
+Timings were from the version as of 11/29/2015
+
+All timings were performed using public key authentication so that the password prompt would have no effect on the timing.
+
+The timings were performed using a C++ wrapper that recorded the amount of time it took from the start to the end of the program. They were performed on an ubuntu 14.04 virtual machine - which may cause the network speeds to be a little slower. However, relative timings should still be valid.
+
+The timings are in seconds.
+
+### SCP FROM REMOTE COMPUTER TO LOCAL ###
+
+For 16 FU 1TPa H2O xtalopt input/output VASP directory in seconds:
+
+Directory contains 2.2 megabytes total with 20 files total (largest file-size is 384 kilobytes)
+
+scp     myscp
+4.35999 2.445
+4.4174  4.53537
+3.54523 2.50105
+3.58314 2.45829
+4.85694 2.99402
+2.37544 3.77611
+2.62044 2.08841
+2.09103 1.7118
+2.8613  2.2522
+2.28093 1.89824
+
+scp average is: 3.29918
+myscp average is: 2.66605
+
+
+For release9 xtalopt directory (minus the .git file) which contains many source files and directories of various size (total size is 144 megabytes):
+
+scp      myscp
+32.534   35.682
+35.1358  38.4085
+47.3593  34.827
+35.2688  46.1275
+
+scp average is: 37.574
+myscp average is: 38.76
+
+
+For a 1.2 GB file (with two negligible files in the directory as well):
+
+scp     myscp
+201.842 207.785
+211.116 241.172
+212.052 211.906
+
+scp average is: 208.337
+myscp average is: 220.288
+
+### SCP FROM LOCAL TO REMOTE COMPUTER ###
+
+For a single 550 megabyte file:
+
+scp wallTime is 96.176024
+myscp wallTime is 98.361334
+
+For the same 2.2 megabyte directory used for a receiving test above:
+
+scp     myscp
+1.62138 1.83484
+1.5949  2.04658
+1.51832 1.76742
+2.0149  1.87022
+2.15412 1.37958
+1.82904 2.01979
+7.33391 2.34876
+1.59719 1.4506
+2.28804 2.01308
+2.06407 1.27703
+
+scp average is: 2.40159
+myscp average is: 1.80079
+
